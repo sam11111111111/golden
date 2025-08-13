@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flight Booking System – Seats, Pricing, Persistence</title>
+<style>
+  :root{
+    --primary:#0d6efd; --primary-dark:#0b5ed7; --success:#198754; --danger:#dc3545; --muted:#6c757d; --bg:#f4f6f9; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";background:var(--bg);color:#222}
+  header{background:var(--primary);color:#fff;padding:18px 16px;text-align:center}
+  header h1{margin:0;font-size:1.5rem}
+  .wrap{max-width:1000px;margin:24px auto;padding:0 16px}
+  .card{background:var(--card);border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.06);padding:18px}
+  .row{display:flex;gap:16px;flex-wrap:wrap}
+  .col{flex:1 1 280px}
+  label{display:block;font-weight:600;margin:.25rem 0}
+  select,input[type="date"],button{width:100%;padding:10px 12px;border:1px solid #d7dce3;border-radius:10px;font-size:15px}
+  button{background:var(--primary);color:#fff;border:none;cursor:pointer}
+  button:hover{background:var(--primary-dark)}
+  .btn-outline{background:#fff;color:var(--primary);border:1px solid var(--primary)}
+  .btn-success{background:var(--success)}
+  .btn-danger{background:var(--danger)}
+  .tabs{display:flex;gap:10px;margin-bottom:16px}
+  .tabs button{flex:1}
+  .hidden{display:none}
+
+  /* Seat map */
+  .seat-legend{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0 4px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid #d7dce3;background:#fff;font-size:13px}
+  .square{width:14px;height:14px;border-radius:4px;background:#ccc;display:inline-block}
+  .square.business{background:#ffce54}
+  .square.economy{background:#54c1d6}
+  .square.selected{background:#20c997}
+  .square.occupied{background:#adb5bd}
+
+  .cabin{display:grid;grid-template-columns: 40px repeat(6, 52px); gap:8px; justify-content:center; margin:14px 0}
+  .seat{width:52px;height:52px;border-radius:10px;background:#e9ecef;display:flex;align-items:center;justify-content:center;cursor:pointer;position:relative;border:1px solid #d7dce3;user-select:none}
+  .seat.business{background:#ffe8a1}
+  .seat.economy{background:#dff5fb}
+  .seat.selected{background:#20c997;color:#fff;border-color:#17a589}
+  .seat.occupied{background:#cfd4da;color:#6c757d;cursor:not-allowed}
+  .aisle{grid-column:1/-1;height:8px}
+  .row-label{display:flex;align-items:center;justify-content:center;font-weight:600}
+
+  /* Tooltip */
+  .seat .tip{visibility:hidden;opacity:0;transition:opacity .15s ease;position:absolute;bottom:62px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.85);color:#fff;padding:6px 8px;border-radius:8px;font-size:12px;white-space:nowrap;pointer-events:none}
+  .seat:hover .tip, .seat:focus .tip, .seat.show-tip .tip{visibility:visible;opacity:1}
+
+  .summary{display:flex;gap:12px;align-items:center;flex-wrap:wrap;justify-content:space-between;margin-top:10px}
+  .summary .numbers{font-weight:700}
+  .bookings{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .booking{border:1px solid #e5e7eb;border-radius:12px;padding:12px}
+  .muted{color:var(--muted)}
+  .hdr{font-size:14px;color:#555;margin-bottom:8px}
+  .split{display:flex;gap:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Flight Booking System</h1>
+</header>
+<div class="wrap">
+  <div class="card">
+    <div class="tabs">
+      <button id="tab-book" class="btn-success">Book Flight</button>
+      <button id="tab-view" class="btn-outline">View Bookings</button>
+    </div>
+    
+    <!-- BOOK -->
+    <section id="panel-book">
+      <div class="row">
+        <div class="col">
+          <label for="from">From</label>
+          <select id="from">
+            <option value="">Select Departure</option>
+            <option>Addis Ababa</option>
+            <option>Nairobi</option>
+            <option>Cairo</option>
+            <option>Dubai</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="to">To</label>
+          <select id="to">
+            <option value="">Select Destination</option>
+            <option>Addis Ababa</option>
+            <option>Nairobi</option>
+            <option>Cairo</option>
+            <option>Dubai</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="date">Date</label>
+          <input type="date" id="date" />
+        </div>
+      </div>
+
+      <div class="seat-legend">
+        <span class="pill"><span class="square business"></span> Business</span>
+        <span class="pill"><span class="square economy"></span> Economy</span>
+        <span class="pill"><span class="square selected"></span> Selected</span>
+        <span class="pill"><span class="square occupied"></span> Occupied</span>
+        <span class="pill muted">Tap/hover seat for price</span>
+      </div>
+
+      <div id="cabin" class="cabin" aria-label="Seat map"></div>
+
+      <div class="summary">
+        <div class="numbers">Selected: <span id="selCount">0</span> • Total: $<span id="total">0</span></div>
+        <div class="split">
+          <button id="btn-book" class="btn-success">Confirm Booking</button>
+          <button id="btn-clear" class="btn-outline" title="Clear current selection">Clear Selection</button>
+        </div>
+      </div>
+
+      <div class="hdr muted" style="margin-top:10px">Dev tools</div>
+      <div class="row">
+        <div class="col">
+          <button id="btn-reset" class="btn-danger">Reset All Saved Data</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW -->
+    <section id="panel-view" class="hidden">
+      <div class="bookings" id="bookingsList"></div>
+      <p id="noBookings" class="muted">No bookings yet.</p>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  const EL = id => document.getElementById(id);
+  const cabin = EL('cabin');
+  const selCount = EL('selCount');
+  const totalEl = EL('total');
+  const fromEl = EL('from');
+  const toEl = EL('to');
+  const dateEl = EL('date');
+  const bookingsList = EL('bookingsList');
+  const noBookings = EL('noBookings');
+
+  // Pricing by class
+  const PRICE = { business: 150, economy: 80 };
+
+  // Layout config
+  const ROWS = 10; // 10 rows
+  const COLS = 6;  // A-F
+  const BUSINESS_ROWS = 2; // first 2 rows are business
+  const LETTERS = ['A','B','C','D','E','F'];
+
+  // Storage keys
+  const LS_BOOKINGS = 'fb_bookings_v1';
+  const LS_OCCUPIED = 'fb_occupied_v1';
+
+  let selected = new Set(); // set of seat ids like "1A"
+
+  const loadJSON = (k, d)=>{ try{ return JSON.parse(localStorage.getItem(k)) ?? d }catch{ return d } };
+  const saveJSON = (k, v)=> localStorage.setItem(k, JSON.stringify(v));
+
+  function routeKey(){
+    const from = fromEl.value || '—';
+    const to = toEl.value || '—';
+    const date = dateEl.value || '—';
+    return `${from}__${to}__${date}`;
+  }
+
+  function getOccupied(){
+    const all = loadJSON(LS_OCCUPIED, {});
+    return all[routeKey()] || [];
+  }
+  function setOccupied(list){
+    const all = loadJSON(LS_OCCUPIED, {});
+    all[routeKey()] = list;
+    saveJSON(LS_OCCUPIED, all);
+  }
+
+  function seatId(r,c){ return `${r}${LETTERS[c-1]}` }
+  function seatClass(row){ return row <= BUSINESS_ROWS ? 'business' : 'economy' }
+  function seatPrice(row){ return PRICE[ seatClass(row) ] }
+
+  function buildCabin(){
+    cabin.innerHTML = '';
+    selected.clear();
+    updateSummary();
+
+    const occupied = new Set(getOccupied());
+
+    for(let r=1;r<=ROWS;r++){
+      // row label at column 1
+      const label = document.createElement('div');
+      label.className = 'row-label';
+      label.textContent = r;
+      cabin.appendChild(label);
+
+      for(let c=1;c<=COLS;c++){
+        const id = seatId(r,c);
+        const seat = document.createElement('button');
+        seat.type = 'button';
+        seat.className = `seat ${seatClass(r)}`;
+        seat.setAttribute('aria-label', `${id} ${seatClass(r)} $${seatPrice(r)}`);
+        seat.innerHTML = `<strong>${id}</strong><span class="tip">${seatClass(r).toUpperCase()} • $${seatPrice(r)}</span>`;
+
+        if(occupied.has(id)){
+          seat.classList.add('occupied');
+          seat.disabled = true;
+        }
+
+        seat.addEventListener('click', ()=> toggleSeat(id, seat, occupied));
+        seat.addEventListener('touchstart', ()=> seat.classList.add('show-tip'));
+        seat.addEventListener('touchend', ()=> setTimeout(()=>seat.classList.remove('show-tip'), 400));
+
+        cabin.appendChild(seat);
+      }
+    }
+  }
+
+  function toggleSeat(id, seatEl){
+    if(seatEl.classList.contains('occupied')) return;
+    if(selected.has(id)){
+      selected.delete(id);
+      seatEl.classList.remove('selected');
+    } else {
+      selected.add(id);
+      seatEl.classList.add('selected');
+    }
+    updateSummary();
+  }
+
+  function calcTotal(){
+    let sum = 0;
+    for(const id of selected){
+      const row = parseInt(id,10);
+      sum += seatPrice(row);
+    }
+    return sum;
+  }
+
+  function updateSummary(){
+    selCount.textContent = selected.size;
+    totalEl.textContent = calcTotal();
+  }
+
+  function ensureRouteValid(){
+    const from = fromEl.value; const to = toEl.value; const date = dateEl.value;
+    if(!from || !to || !date){ alert('Please choose From, To, and Date.'); return false }
+    if(from === to){ alert('Departure and destination cannot be the same.'); return false }
+    return true;
+  }
+
+  function confirmBooking(){
+    if(!ensureRouteValid()) return;
+    if(selected.size === 0){ alert('Select at least one seat.'); return }
+
+    const from = fromEl.value, to = toEl.value, date = dateEl.value;
+    const seats = Array.from(selected).sort((a,b)=> a.localeCompare(b, undefined, {numeric:true}));
+    const total = calcTotal();
+
+    // Save booking
+    const bookings = loadJSON(LS_BOOKINGS, []);
+    const booking = { id: Date.now(), from, to, date, seats, total };
+    bookings.push(booking);
+    saveJSON(LS_BOOKINGS, bookings);
+
+    // Mark seats occupied for this route+date
+    const occ = new Set(getOccupied());
+    seats.forEach(s=> occ.add(s));
+    setOccupied(Array.from(occ));
+
+    alert(`Booked ${from} → ${to} on ${date}\nSeats: ${seats.join(', ')}\nTotal: $${total}`);
+
+    // Reset UI
+    selected.clear();
+    buildCabin();
+    renderBookings();
+  }
+
+  function renderBookings(){
+    const list = loadJSON(LS_BOOKINGS, []);
+    bookingsList.innerHTML = '';
+    if(list.length === 0){ noBookings.style.display = 'block'; return } else { noBookings.style.display = 'none' }
+
+    for(const b of list.slice().reverse()){
+      const div = document.createElement('div');
+      div.className = 'booking';
+      div.innerHTML = `
+        <div style="font-weight:700">${b.from} → ${b.to}</div>
+        <div class="muted">${b.date}</div>
+        <div>Seats: <strong>${b.seats.join(', ')}</strong></div>
+        <div>Total: <strong>$${b.total}</strong></div>
+        <div class="row" style="margin-top:8px">
+          <div class="col"><button class="btn-outline" data-act="invoice" data-id="${b.id}">Download Ticket</button></div>
+          <div class="col"><button class="btn-danger" data-act="cancel" data-id="${b.id}">Cancel Booking</button></div>
+        </div>
+      `;
+      bookingsList.appendChild(div);
+    }
+
+    // Event delegation for buttons
+    bookingsList.querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click', e=>{
+        const id = Number(btn.dataset.id);
+        const act = btn.dataset.act;
+        if(act === 'cancel') cancelBooking(id);
+        if(act === 'invoice') downloadTicket(id);
+      })
+    })
+  }
+
+  function cancelBooking(id){
+    const list = loadJSON(LS_BOOKINGS, []);
+    const idx = list.findIndex(x=> x.id === id);
+    if(idx === -1) return;
+    const b = list[idx];
+
+    if(!confirm(`Cancel booking for ${b.from} → ${b.to} on ${b.date}?`)) return;
+
+    // Free seats for that route+date
+    const key = `${b.from}__${b.to}__${b.date}`;
+    const occMap = loadJSON(LS_OCCUPIED, {});
+    const current = new Set(occMap[key] || []);
+    b.seats.forEach(s=> current.delete(s));
+    occMap[key] = Array.from(current);
+    saveJSON(LS_OCCUPIED, occMap);
+
+    // Remove booking
+    list.splice(idx,1);
+    saveJSON(LS_BOOKINGS, list);
+
+    buildCabin();
+    renderBookings();
+  }
+
+  // Simple text ticket download
+  function downloadTicket(id){
+    const list = loadJSON(LS_BOOKINGS, []);
+    const b = list.find(x=> x.id === id);
+    if(!b) return;
+    const content = `TICKET\nID: ${b.id}\nRoute: ${b.from} → ${b.to}\nDate: ${b.date}\nSeats: ${b.seats.join(', ')}\nTotal: $${b.total}\n\nThank you for flying with us!`;
+    const blob = new Blob([content], {type:'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `ticket-${b.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // Tab handling
+  EL('tab-book').addEventListener('click', ()=>{
+    EL('tab-book').className = 'btn-success';
+    EL('tab-view').className = 'btn-outline';
+    EL('panel-book').classList.remove('hidden');
+    EL('panel-view').classList.add('hidden');
+  });
+  EL('tab-view').addEventListener('click', ()=>{
+    EL('tab-book').className = 'btn-outline';
+    EL('tab-view').className = 'btn-success';
+    EL('panel-book').classList.add('hidden');
+    EL('panel-view').classList.remove('hidden');
+    renderBookings();
+  });
+
+  // Controls
+  EL('btn-book').addEventListener('click', confirmBooking);
+  EL('btn-clear').addEventListener('click', ()=>{ selected.clear(); document.querySelectorAll('.seat.selected').forEach(s=>s.classList.remove('selected')); updateSummary(); });
+  EL('btn-reset').addEventListener('click', ()=>{
+    if(!confirm('This will delete all saved bookings and seat occupancy. Continue?')) return;
+    localStorage.removeItem(LS_BOOKINGS);
+    localStorage.removeItem(LS_OCCUPIED);
+    selected.clear();
+    buildCabin();
+    renderBookings();
+    alert('All saved data cleared.');
+  });
+
+  // Rebuild seat map whenever route/date changes
+  [fromEl, toEl, dateEl].forEach(el=> el.addEventListener('change', buildCabin));
+
+  // Init defaults (today)
+  const today = new Date().toISOString().slice(0,10);
+  dateEl.value = today;
+
+  // Start
+  buildCabin();
+  renderBookings();
+})();
+</script>
+</body>
+</html>
